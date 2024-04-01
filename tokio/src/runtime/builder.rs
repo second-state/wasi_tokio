@@ -228,8 +228,8 @@ impl Builder {
         /// Returns a new builder with the multi thread scheduler selected.
         ///
         /// Configuration methods can be chained on the return value.
-        #[cfg(feature = "rt-multi-thread")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "rt-multi-thread")))]
+        #[cfg(all(feature = "rt-multi-thread", not(target_os = "wasi")))]
+        #[cfg_attr(docsrs, doc(cfg(all(feature = "rt-multi-thread", not(target_os = "wasi")))))]
         pub fn new_multi_thread() -> Builder {
             // The number `61` is fairly arbitrary. I believe this value was copied from golang.
             Builder::new(Kind::MultiThread, 61)
@@ -247,8 +247,8 @@ impl Builder {
             /// ready**.
             ///
             /// Configuration methods can be chained on the return value.
-            #[cfg(feature = "rt-multi-thread")]
-            #[cfg_attr(docsrs, doc(cfg(feature = "rt-multi-thread")))]
+            #[cfg(all(feature = "rt-multi-thread", not(target_os = "wasi")))]
+            #[cfg_attr(docsrs, doc(cfg(all(feature = "rt-multi-thread", not(target_os = "wasi")))))]
             pub fn new_multi_thread_alt() -> Builder {
                 // The number `61` is fairly arbitrary. I believe this value was copied from golang.
                 Builder::new(Kind::MultiThreadAlt, 61)

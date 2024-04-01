@@ -6,6 +6,8 @@ use std::net::SocketAddr;
 
 #[cfg(unix)]
 use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
+#[cfg(all(target_os = "wasi", not(unix)))]
+use std::os::wasi::io::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, RawFd};
 use std::time::Duration;
 
 cfg_windows! {
@@ -429,6 +431,7 @@ impl TcpSocket {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(not(target_os = "wasi"))]
     pub fn set_nodelay(&self, nodelay: bool) -> io::Result<()> {
         self.inner.set_nodelay(nodelay)
     }
@@ -451,6 +454,7 @@ impl TcpSocket {
     /// # Ok(())
     /// # }
     /// ```
+    #[cfg(not(target_os = "wasi"))]
     pub fn nodelay(&self) -> io::Result<bool> {
         self.inner.nodelay()
     }
@@ -469,6 +473,7 @@ impl TcpSocket {
         target_os = "redox",
         target_os = "solaris",
         target_os = "illumos",
+        target_os = "wasi",
     )))]
     #[cfg_attr(
         docsrs,
@@ -477,6 +482,7 @@ impl TcpSocket {
             target_os = "redox",
             target_os = "solaris",
             target_os = "illumos",
+            target_os = "wasi",
         ))))
     )]
     pub fn tos(&self) -> io::Result<u32> {
@@ -496,6 +502,7 @@ impl TcpSocket {
         target_os = "redox",
         target_os = "solaris",
         target_os = "illumos",
+        target_os = "wasi",
     )))]
     #[cfg_attr(
         docsrs,
@@ -504,6 +511,7 @@ impl TcpSocket {
             target_os = "redox",
             target_os = "solaris",
             target_os = "illumos",
+            target_os = "wasi",
         ))))
     )]
     pub fn set_tos(&self, tos: u32) -> io::Result<()> {
@@ -635,7 +643,7 @@ impl TcpSocket {
     /// ```
     pub async fn connect(self, addr: SocketAddr) -> io::Result<TcpStream> {
         if let Err(err) = self.inner.connect(&addr.into()) {
-            #[cfg(unix)]
+            #[cfg(any(unix, target_os = "wasi"))]
             if err.raw_os_error() != Some(libc::EINPROGRESS) {
                 return Err(err);
             }
@@ -644,9 +652,9 @@ impl TcpSocket {
                 return Err(err);
             }
         }
-        #[cfg(unix)]
+        #[cfg(not(windows))]
         let mio = {
-            use std::os::unix::io::{FromRawFd, IntoRawFd};
+            use std::os::fd::{FromRawFd, IntoRawFd};
 
             let raw_fd = self.inner.into_raw_fd();
             unsafe { mio::net::TcpStream::from_raw_fd(raw_fd) }
@@ -700,9 +708,9 @@ impl TcpSocket {
     /// ```
     pub fn listen(self, backlog: u32) -> io::Result<TcpListener> {
         self.inner.listen(backlog as i32)?;
-        #[cfg(unix)]
+        #[cfg(not(windows))]
         let mio = {
-            use std::os::unix::io::{FromRawFd, IntoRawFd};
+            use std::os::fd::{FromRawFd, IntoRawFd};
 
             let raw_fd = self.inner.into_raw_fd();
             unsafe { mio::net::TcpListener::from_raw_fd(raw_fd) }
@@ -753,9 +761,9 @@ impl TcpSocket {
     /// }
     /// ```
     pub fn from_std_stream(std_stream: std::net::TcpStream) -> TcpSocket {
-        #[cfg(unix)]
+        #[cfg(not(windows))]
         {
-            use std::os::unix::io::{FromRawFd, IntoRawFd};
+            use std::os::fd::{FromRawFd, IntoRawFd};
 
             let raw_fd = std_stream.into_raw_fd();
             unsafe { TcpSocket::from_raw_fd(raw_fd) }
@@ -772,6 +780,7 @@ impl TcpSocket {
 }
 
 fn convert_address(address: socket2::SockAddr) -> io::Result<SocketAddr> {
+    #[cfg(not(target_os = "wasi"))]
     match address.as_socket() {
         Some(address) => Ok(address),
         None => Err(io::Error::new(
@@ -779,6 +788,8 @@ fn convert_address(address: socket2::SockAddr) -> io::Result<SocketAddr> {
             "invalid address family (not IPv4 or IPv6)",
         )),
     }
+    #[cfg(all(not(unix), target_os = "wasi"))]
+    Ok(address)
 }
 
 impl fmt::Debug for TcpSocket {
@@ -788,6 +799,39 @@ impl fmt::Debug for TcpSocket {
 }
 
 cfg_unix! {
+    impl AsRawFd for TcpSocket {
+        fn as_raw_fd(&self) -> RawFd {
+            self.inner.as_raw_fd()
+        }
+    }
+
+    impl AsFd for TcpSocket {
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
+        }
+    }
+
+    impl FromRawFd for TcpSocket {
+        /// Converts a `RawFd` to a `TcpSocket`.
+        ///
+        /// # Notes
+        ///
+        /// The caller is responsible for ensuring that the socket is in
+        /// non-blocking mode.
+        unsafe fn from_raw_fd(fd: RawFd) -> TcpSocket {
+            let inner = socket2::Socket::from_raw_fd(fd);
+            TcpSocket { inner }
+        }
+    }
+
+    impl IntoRawFd for TcpSocket {
+        fn into_raw_fd(self) -> RawFd {
+            self.inner.into_raw_fd()
+        }
+    }
+}
+
+cfg_wasi! {
     impl AsRawFd for TcpSocket {
         fn as_raw_fd(&self) -> RawFd {
             self.inner.as_raw_fd()

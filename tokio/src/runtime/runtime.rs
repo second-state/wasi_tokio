@@ -175,8 +175,8 @@ impl Runtime {
         /// [main]: ../attr.main.html
         /// [threaded scheduler]: index.html#threaded-scheduler
         /// [runtime builder]: crate::runtime::Builder
-        #[cfg(feature = "rt-multi-thread")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "rt-multi-thread")))]
+        #[cfg(all(feature = "rt-multi-thread", not(target_os = "wasi")))]
+        #[cfg_attr(docsrs, doc(cfg(all(feature = "rt-multi-thread", not(target_os = "wasi")))))]
         pub fn new() -> std::io::Result<Runtime> {
             Builder::new_multi_thread().enable_all().build()
         }
