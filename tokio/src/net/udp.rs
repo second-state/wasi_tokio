@@ -255,6 +255,15 @@ impl UdpSocket {
                 .map(|raw_fd| unsafe { std::net::UdpSocket::from_raw_fd(raw_fd) })
         }
 
+        #[cfg(all(target_os = "wasi", tokio_unstable))]
+        {
+            use std::os::wasi::io::{FromRawFd, IntoRawFd};
+            self.io
+                .into_inner()
+                .map(IntoRawFd::into_raw_fd)
+                .map(|raw_fd| unsafe { std::net::UdpSocket::from_raw_fd(raw_fd) })
+        }
+
         #[cfg(windows)]
         {
             use std::os::windows::io::{FromRawSocket, IntoRawSocket};
@@ -1715,15 +1724,22 @@ impl UdpSocket {
 
     #[inline]
     fn peek_sender_inner(&self) -> io::Result<SocketAddr> {
-        self.io.try_io(|| {
-            self.as_socket()
-                .peek_sender()?
-                // May be `None` if the platform doesn't populate the sender for some reason.
-                // In testing, that only occurred on macOS if you pass a zero-sized buffer,
-                // but the implementation of `Socket::peek_sender()` covers that.
-                .as_socket()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "sender not available"))
-        })
+        #[cfg(not(target_os = "wasi"))]
+        {
+            self.io.try_io(|| {
+                self.as_socket()
+                    .peek_sender()?
+                    // May be `None` if the platform doesn't populate the sender for some reason.
+                    // In testing, that only occurred on macOS if you pass a zero-sized buffer,
+                    // but the implementation of `Socket::peek_sender()` covers that.
+                    .as_socket()
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "sender not available"))
+            })
+        }
+        #[cfg(target_os = "wasi")]
+        {
+            self.io.try_io(|| self.as_socket().peek_sender())
+        }
     }
 
     /// Gets the value of the `SO_BROADCAST` option for this socket.
@@ -1864,6 +1880,7 @@ impl UdpSocket {
         target_os = "redox",
         target_os = "solaris",
         target_os = "illumos",
+        target_os = "wasi",
     )))]
     #[cfg_attr(
         docsrs,
@@ -1872,6 +1889,7 @@ impl UdpSocket {
             target_os = "redox",
             target_os = "solaris",
             target_os = "illumos",
+            target_os = "wasi",
         ))))
     )]
     pub fn tos(&self) -> io::Result<u32> {
@@ -1891,6 +1909,7 @@ impl UdpSocket {
         target_os = "redox",
         target_os = "solaris",
         target_os = "illumos",
+        target_os = "wasi",
     )))]
     #[cfg_attr(
         docsrs,
@@ -1899,6 +1918,7 @@ impl UdpSocket {
             target_os = "redox",
             target_os = "solaris",
             target_os = "illumos",
+            target_os = "wasi",
         ))))
     )]
     pub fn set_tos(&self, tos: u32) -> io::Result<()> {
@@ -2017,6 +2037,24 @@ impl fmt::Debug for UdpSocket {
 mod sys {
     use super::UdpSocket;
     use std::os::unix::prelude::*;
+
+    impl AsRawFd for UdpSocket {
+        fn as_raw_fd(&self) -> RawFd {
+            self.io.as_raw_fd()
+        }
+    }
+
+    impl AsFd for UdpSocket {
+        fn as_fd(&self) -> BorrowedFd<'_> {
+            unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
+        }
+    }
+}
+
+#[cfg(target_os = "wasi")]
+mod sys {
+    use super::UdpSocket;
+    use std::os::wasi::prelude::*;
 
     impl AsRawFd for UdpSocket {
         fn as_raw_fd(&self) -> RawFd {

@@ -161,6 +161,7 @@ cfg_net! {
 
     impl ToSocketAddrs for str {}
 
+    #[cfg(not(target_os = "wasi"))]
     impl sealed::ToSocketAddrsPriv for str {
         type Iter = sealed::OneOrMore;
         type Future = sealed::MaybeReady;
@@ -185,10 +186,39 @@ cfg_net! {
         }
     }
 
+
+    #[cfg(all(target_os = "wasi", tokio_unstable))]
+    impl sealed::ToSocketAddrsPriv for str {
+        type Iter = sealed::OneOrMore;
+        type Future = sealed::MaybeReady;
+
+        fn to_socket_addrs(&self, _: sealed::Internal) -> Self::Future {
+            use sealed::MaybeReady;
+
+            // First check if the input parses as a socket address
+            let res: Result<SocketAddr, _> = self.parse();
+
+            if let Ok(addr) = res {
+                return MaybeReady(sealed::State::Ready(Some(addr)));
+            }
+
+            // Run DNS lookup on the blocking pool
+            let s = self.to_owned();
+
+            MaybeReady(sealed::State::Ready({
+                let addrs = wasmedge_wasi_socket::ToSocketAddrs::to_socket_addrs(&s).ok();
+                addrs.and_then(|mut addrs|{
+                    addrs.next()
+                })
+            }))
+        }
+    }
+
     // ===== impl (&str, u16) =====
 
     impl ToSocketAddrs for (&str, u16) {}
 
+    #[cfg(not(target_os = "wasi"))]
     impl sealed::ToSocketAddrsPriv for (&str, u16) {
         type Iter = sealed::OneOrMore;
         type Future = sealed::MaybeReady;
@@ -219,6 +249,43 @@ cfg_net! {
             MaybeReady(sealed::State::Blocking(spawn_blocking(move || {
                 std::net::ToSocketAddrs::to_socket_addrs(&(&host[..], port))
             })))
+        }
+    }
+
+
+    #[cfg(all(target_os = "wasi", tokio_unstable))]
+    impl sealed::ToSocketAddrsPriv for (&str, u16) {
+        type Iter = sealed::OneOrMore;
+        type Future = sealed::MaybeReady;
+
+        fn to_socket_addrs(&self, _: sealed::Internal) -> Self::Future {
+            use sealed::MaybeReady;
+
+            let (host, port) = *self;
+
+            // try to parse the host as a regular IP address first
+            if let Ok(addr) = host.parse::<Ipv4Addr>() {
+                let addr = SocketAddrV4::new(addr, port);
+                let addr = SocketAddr::V4(addr);
+
+                return MaybeReady(sealed::State::Ready(Some(addr)));
+            }
+
+            if let Ok(addr) = host.parse::<Ipv6Addr>() {
+                let addr = SocketAddrV6::new(addr, port, 0, 0);
+                let addr = SocketAddr::V6(addr);
+
+                return MaybeReady(sealed::State::Ready(Some(addr)));
+            }
+
+            let host = host.to_owned();
+
+            MaybeReady(sealed::State::Ready({
+                let addrs = wasmedge_wasi_socket::ToSocketAddrs::to_socket_addrs(&(&host[..], port)).ok();
+                addrs.and_then(|mut addrs|{
+                    addrs.next()
+                })
+            }))
         }
     }
 
