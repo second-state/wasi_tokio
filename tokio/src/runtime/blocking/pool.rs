@@ -180,7 +180,11 @@ where
     R: Send + 'static,
 {
     let rt = Handle::current();
-    rt.spawn_blocking(func)
+    if cfg!(all(tokio_unstable, target_os = "wasi")) {
+        rt.spawn(async { func() })
+    } else {
+        rt.spawn_blocking(func)
+    }
 }
 
 cfg_fs! {
