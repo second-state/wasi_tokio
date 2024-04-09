@@ -109,7 +109,7 @@ macro_rules! cfg_fs {
     ($($item:item)*) => {
         $(
             #[cfg(feature = "fs")]
-            #[cfg(not(target_os = "wasi"))]
+            #[cfg(any(tokio_unstable, not(target_os = "wasi")))]
             #[cfg_attr(docsrs, doc(cfg(feature = "fs")))]
             $item
         )*

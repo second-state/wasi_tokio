@@ -297,21 +297,28 @@ cfg_windows! {
 
 use std::io;
 
-#[cfg(not(test))]
-use crate::blocking::spawn_blocking;
-#[cfg(test)]
-use mocks::spawn_blocking;
-
 pub(crate) async fn asyncify<F, T>(f: F) -> io::Result<T>
 where
     F: FnOnce() -> io::Result<T> + Send + 'static,
     T: Send + 'static,
 {
-    match spawn_blocking(f).await {
-        Ok(res) => res,
-        Err(_) => Err(io::Error::new(
-            io::ErrorKind::Other,
-            "background task failed",
-        )),
+    #[cfg(not(all(tokio_unstable, target_os = "wasi")))]
+    {
+        #[cfg(not(test))]
+        use crate::blocking::spawn_blocking;
+        #[cfg(test)]
+        use mocks::spawn_blocking;
+
+        match spawn_blocking(f).await {
+            Ok(res) => res,
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::Other,
+                "background task failed",
+            )),
+        }
+    }
+    #[cfg(all(tokio_unstable, target_os = "wasi"))]
+    {
+        f().map_err(|_| io::Error::new(io::ErrorKind::Other, "background task failed"))
     }
 }
