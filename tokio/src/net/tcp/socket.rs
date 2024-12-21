@@ -642,6 +642,7 @@ impl TcpSocket {
     /// }
     /// ```
     pub async fn connect(self, addr: SocketAddr) -> io::Result<TcpStream> {
+        self.inner.set_nonblocking(false)?;
         if let Err(err) = self.inner.connect(&addr.into()) {
             #[cfg(any(unix, target_os = "wasi"))]
             if err.raw_os_error() != Some(libc::EINPROGRESS) {
@@ -652,6 +653,8 @@ impl TcpSocket {
                 return Err(err);
             }
         }
+        self.inner.set_nonblocking(true)?;
+
         #[cfg(not(windows))]
         let mio = {
             use std::os::fd::{FromRawFd, IntoRawFd};
@@ -668,7 +671,8 @@ impl TcpSocket {
             unsafe { mio::net::TcpStream::from_raw_socket(raw_socket) }
         };
 
-        TcpStream::connect_mio(mio).await
+        // TcpStream::connect_mio(mio).await
+        TcpStream::new(mio)
     }
 
     /// Converts the socket into a `TcpListener`.
